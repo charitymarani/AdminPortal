@@ -2,7 +2,7 @@ import os
 import jwt
 from rest_framework import status, generics
 from rest_framework.generics import (
-    RetrieveUpdateAPIView, CreateAPIView, ListAPIView)
+    RetrieveUpdateDestroyAPIView, ListCreateAPIView, ListAPIView, CreateAPIView)
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from src import settings
@@ -13,18 +13,65 @@ from .serializers import (
     LoginSerializer, RegistrationSerializer, UserSerializer,
     PasswordResetSerializer)
 from src.settings import SECRET_KEY
-from .models import CustomUser
+from .models import RegularUser, CustomUser
+from django.contrib.auth.models import Group
+from django.core.exceptions import ObjectDoesNotExist
+from django.contrib.auth.mixins import PermissionRequiredMixin
+from ..permissions import IsAdminUser
+from django.http import Http404
+from django.core.exceptions import ObjectDoesNotExist
 
 
 class HomeView(ListAPIView):
     """class to access the home route"""
 
     def get(self, request):
-        return Response("Welcome to fulldeck Authors Haven API")
+        return Response("Welcome to Adrian admin portal")
 
 
+class UserAPIView(CreateAPIView):
+    # Allow user with add_regular user permission to hit this endpoint.
+    permission_classes = (IsAuthenticated, IsAdminUser)
+    renderer_classes = (UserJSONRenderer,)
+    serializer_class = RegistrationSerializer
+    queryset = CustomUser.objects.all()
+
+    def post(self, request):
+        user = request.data
+        serializer = self.serializer_class(data=user)
+        serializer.is_valid(raise_exception=True)
+        saved_user = serializer.save()
+        group_queryset = []
+        try:
+            if 'groups' in user.keys():
+                group_data = user['groups']
+                if len(group_data) > 0:
+                    for group in group_data:
+                        grp = Group.objects.get(pk=group)
+                        group_queryset.append(grp)
+                        saved_user.groups.add(*group_queryset)
+        except ObjectDoesNotExist:
+            return Response({'message': 'Group not found'})
+        response_message = {
+            "message": "User added successfully.",
+            "user_info": serializer.data
+        }
+        return Response(response_message, status=status.HTTP_201_CREATED)
+
+    
+
+class ListUsersView(ListAPIView):
+    """class to list users"""
+    permission_classes = (IsAuthenticated, IsAdminUser)
+    serializer_class = RegistrationSerializer
+    queryset = CustomUser.objects.all()
+
+    def get(self, request):
+        queryset = self.get_queryset()
+        serializer = self.serializer_class(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 class RegistrationAPIView(CreateAPIView):
-    # Allow any user (authenticated or not) to hit this endpoint.
+    # Allow any user to hit this endpoint.
     permission_classes = (AllowAny,)
     renderer_classes = (UserJSONRenderer,)
     serializer_class = RegistrationSerializer
@@ -55,27 +102,49 @@ class LoginAPIView(CreateAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class UserRetrieveUpdateAPIView(RetrieveUpdateAPIView):
-    permission_classes = (IsAuthenticated,)
+class UserRetrieveUpdateDeleteAPIView(RetrieveUpdateDestroyAPIView):
+    permission_classes = (IsAuthenticated, IsAdminUser,)
     renderer_classes = (UserJSONRenderer,)
     serializer_class = UserSerializer
+    lookup_field = 'id'
 
-    def retrieve(self, request, *args, **kwargs):
-        serializer = self.serializer_class(request.user)
+    def get_user(self, id):
+        try:
+            return CustomUser.objects.get(id=id)
+        except ObjectDoesNotExist:
+            raise Http404
 
+    def retrieve(self, request, id):
+        user = self.get_user(id)
+        serializer = self.serializer_class(user)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def update(self, request, *args, **kwargs):
-        serializer_data = request.data.get('user', {})
+    def update(self, request, id):
+        user = self.get_user(id)
+        serializer_data = request.data
         serializer = self.serializer_class(
-            request.user, data=serializer_data, partial=True
+            user, data=serializer_data, partial=True
         )
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        saved_user = serializer.save()
+        group_queryset = []
+        try:
+            if 'groups' in serializer_data.keys():
+                group_data = serializer_data['groups']
+                if len(group_data) > 0:
+                    for group in group_data:
+                        grp = Group.objects.get(pk=group)
+                        group_queryset.append(grp)
+                        saved_user.groups.add(*group_queryset)
+        except ObjectDoesNotExist:
+            return Response({'message': 'User not found'})
 
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-
+    def delete(self, request, id):
+        user = self.get_user(id)
+        user.delete()
+        return Response({"message": "User deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
 
 class PasswordUpdateAPIView(generics.UpdateAPIView):
@@ -104,6 +173,3 @@ class PasswordUpdateAPIView(generics.UpdateAPIView):
             return Response(result, status=status.HTTP_201_CREATED)
         except Exception as e:
             return Response({'message': e}, status=status.HTTP_400_BAD_REQUEST)
-
-
-

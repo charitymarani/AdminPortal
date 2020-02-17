@@ -15,7 +15,6 @@ Including another URLconf
 """
 from django.urls import include, path
 from django.contrib import admin
-from src.users import views
 
 
 
@@ -25,4 +24,6 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('src.users.urls',
                             namespace='app_authentication')),
+    path('api/groups', include('src.groups.urls',
+                            namespace='app_group')),                        
 ]

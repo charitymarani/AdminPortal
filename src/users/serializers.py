@@ -2,7 +2,7 @@ from django.contrib.auth import authenticate
 
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
-from .models import CustomUser
+from .models import RegularUser, CustomUser
 
 
 class PasswordSerializer(serializers.ModelSerializer):
@@ -213,3 +213,4 @@ class UserSerializer(serializers.ModelSerializer):
         # save the model.
         instance.save()
         return instance
+
